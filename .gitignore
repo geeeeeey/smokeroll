@@ -1,0 +1,14 @@
+node_modules
+.env
+.env.*
+dist
+.prisma
+.DS_Store
+
+backend/node_modules
+backend/dist
+backend/.env
+
+webapp/node_modules
+webapp/dist
+webapp/.env
