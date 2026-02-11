@@ -5,6 +5,32 @@ import { editProductHandlers } from "./flows/editProductFlow.js";
 
 const prisma = new PrismaClient();
 
+/** ADMIN: whitelist by user_id (NOT chat_id) */
+function getAdminIds(): Set<string> {
+  const raw = process.env.ADMIN_IDS || "";
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+}
+
+function isAdmin(ctx: any) {
+  const adminIds = getAdminIds();
+  const userId = ctx.from?.id;
+  if (!userId) return false;
+  return adminIds.has(String(userId));
+}
+
+async function requireAdmin(ctx: any) {
+  if (!isAdmin(ctx)) {
+    await ctx.reply("⛔ Нет доступа (ты не в списке ADMIN_IDS).");
+    return false;
+  }
+  return true;
+}
+
 export function startBot() {
   const token = process.env.BOT_TOKEN;
   if (!token) throw new Error("BOT_TOKEN missing");
@@ -26,23 +52,33 @@ export function startBot() {
     );
   });
 
+  /**
+   * /admin — теперь НЕ “сделай меня админом”
+   * а “привяжи этот чат для уведомлений о заказах”
+   * (и это может сделать только настоящий админ из ADMIN_IDS)
+   */
   bot.command("admin", async (ctx) => {
+    if (!(await requireAdmin(ctx))) return;
+
+    // сохраняем чат, куда слать заказы
     await prisma.admin.upsert({
       where: { tgChatId: BigInt(ctx.chat.id) },
       update: {},
-      create: { tgChatId: BigInt(ctx.chat.id) }
+      create: { tgChatId: BigInt(ctx.chat.id) },
     });
-    await ctx.reply("✅ Ты добавлен как админ. Теперь заказы будут приходить сюда.");
+
+    await ctx.reply("✅ Чат привязан как админский. Заказы будут приходить сюда.");
   });
 
   bot.command("stock", async (ctx) => {
-    const isAdmin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!isAdmin) return ctx.reply("⛔ Нет доступа. Сначала /admin");
+    if (!(await requireAdmin(ctx))) return;
 
     const products = await prisma.product.findMany({
       orderBy: { id: "asc" },
-      select: { id: true, title: true, stock: true, price: true, isActive: true }
+      select: { id: true, title: true, stock: true, price: true, isActive: true },
     });
+
+    if (products.length === 0) return ctx.reply("Товаров пока нет.");
 
     const lines = products.map(
       (p) => `#${p.id} ${p.isActive ? "✅" : "🚫"} ${p.title} — ${p.price}₽ — остаток: ${p.stock}`
@@ -52,8 +88,7 @@ export function startBot() {
   });
 
   bot.command("setstock", async (ctx) => {
-    const isAdmin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!isAdmin) return ctx.reply("⛔ Нет доступа. Сначала /admin");
+    if (!(await requireAdmin(ctx))) return;
 
     const [idStr, stockStr] = ctx.message.text.split(" ").slice(1);
     const id = Number(idStr);
@@ -67,8 +102,7 @@ export function startBot() {
   });
 
   bot.command("setprice", async (ctx) => {
-    const isAdmin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!isAdmin) return ctx.reply("⛔ Нет доступа. Сначала /admin");
+    if (!(await requireAdmin(ctx))) return;
 
     const [idStr, priceStr] = ctx.message.text.split(" ").slice(1);
     const id = Number(idStr);
@@ -82,13 +116,12 @@ export function startBot() {
   });
 
   bot.command("orders", async (ctx) => {
-    const isAdmin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!isAdmin) return ctx.reply("⛔ Нет доступа. Сначала /admin");
+    if (!(await requireAdmin(ctx))) return;
 
     const orders = await prisma.order.findMany({
       orderBy: { createdAt: "desc" },
       take: 10,
-      include: { items: { include: { product: true } } }
+      include: { items: { include: { product: true } } },
     });
 
     if (orders.length === 0) return ctx.reply("Пока заказов нет.");
@@ -104,7 +137,17 @@ export function startBot() {
     await ctx.reply(msg);
   });
 
-  // flows
+  // flows: защищаем их тоже
+  // (если внутри flow у тебя уже есть проверки — ок, но лучше тут “железно” закрыть)
+  bot.use(async (ctx, next) => {
+    const text = ctx.message?.text || "";
+    // команды админских flow
+    if (text.startsWith("/addproduct") || text.startsWith("/editproduct")) {
+      if (!(await requireAdmin(ctx))) return;
+    }
+    return next();
+  });
+
   addProductHandlers(bot);
   editProductHandlers(bot);
 
