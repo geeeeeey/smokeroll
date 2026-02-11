@@ -47,7 +47,7 @@ export default function App() {
   useEffect(() => {
     tg?.ready?.();
     tg?.expand?.();
-  }, []);
+  }, [tg]);
 
   const refresh = async () => {
     setError(null);
@@ -63,6 +63,7 @@ export default function App() {
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p] as const)), [products]);
@@ -73,6 +74,8 @@ export default function App() {
       return p ? sum + p.price * qty : sum;
     }, 0);
   }, [cart, byId]);
+
+  const cartCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b, 0), [cart]);
 
   const priceBounds = useMemo(() => {
     const prices = products.map((p) => p.price).filter((n) => Number.isFinite(n));
@@ -89,7 +92,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.length, priceBounds.min, priceBounds.max]);
 
-  // clamp если ввели криво
   useEffect(() => {
     if (priceMin !== null && priceMax !== null && priceMin > priceMax) {
       setPriceMin(priceMax);
@@ -98,17 +100,15 @@ export default function App() {
 
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const minVal = priceMin ?? priceBounds.min;
+    const maxVal = priceMax ?? priceBounds.max;
+
     return products.filter((p) => {
       const cat = inferCategory(p.title);
       const inCat = category === "Все" ? true : cat === category;
       const inQuery = q ? p.title.toLowerCase().includes(q) : true;
-
-      const minVal = priceMin ?? priceBounds.min;
-      const maxVal = priceMax ?? priceBounds.max;
-
       const minOk = p.price >= minVal;
       const maxOk = p.price <= maxVal;
-
       return inCat && inQuery && minOk && maxOk;
     });
   }, [products, query, category, priceMin, priceMax, priceBounds.min, priceBounds.max]);
@@ -136,6 +136,7 @@ export default function App() {
   const setQty = (productId: number, next: number) => {
     const p = byId.get(productId);
     if (!p) return;
+
     const clamped = Math.max(0, Math.min(next, p.stock));
     setCart((prev) => {
       if (clamped <= 0) {
@@ -174,12 +175,11 @@ export default function App() {
     }
   };
 
-  const cartCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b, 0), [cart]);
-
   if (!ageOk) {
     return (
       <div style={styles.page}>
         <style>{numberSpinnerCss}</style>
+
         <div style={{ ...styles.card, maxWidth: 520 }}>
           <div style={styles.headerRow}>
             <h2 style={styles.h2}>18+</h2>
@@ -187,10 +187,13 @@ export default function App() {
               {theme === "dark" ? "☀️" : "🌙"}
             </button>
           </div>
+
           <p style={styles.p}>Нажимая “Мне 18+”, вы подтверждаете, что вам исполнилось 18 лет.</p>
+
           <button style={styles.primaryBtn} onClick={() => setAgeOk(true)}>
             ✅ Мне 18+
           </button>
+
           <p style={{ ...styles.p, fontSize: 12, opacity: 0.7, marginTop: 12 }}>
             Этот магазин — технический шаблон. Соблюдайте законы вашей страны.
           </p>
@@ -256,6 +259,7 @@ export default function App() {
               <div style={styles.bannerText}>Выбирай товары — заказ прилетит владельцу в Telegram.</div>
             </div>
           </div>
+
           <div style={styles.bannerPills}>
             <span style={styles.pill}>Вейпы</span>
             <span style={styles.pill}>Жидкости</span>
@@ -304,10 +308,7 @@ export default function App() {
                   placeholder={String(priceBounds.min)}
                   min={priceBounds.min}
                   max={priceBounds.max}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? null : Number(e.target.value);
-                    setPriceMin(v);
-                  }}
+                  onChange={(e) => setPriceMin(e.target.value === "" ? null : Number(e.target.value))}
                   style={styles.moneyInput}
                 />
                 <span style={styles.moneySuffix}>₽</span>
@@ -323,10 +324,7 @@ export default function App() {
                   placeholder={String(priceBounds.max)}
                   min={priceBounds.min}
                   max={priceBounds.max}
-                  onChange={(e) => {
-                    const v = e.target.value === "" ? null : Number(e.target.value);
-                    setPriceMax(v);
-                  }}
+                  onChange={(e) => setPriceMax(e.target.value === "" ? null : Number(e.target.value))}
                   style={styles.moneyInput}
                 />
                 <span style={styles.moneySuffix}>₽</span>
@@ -382,6 +380,7 @@ export default function App() {
             {filteredProducts.map((p) => {
               const qty = cart[p.id] || 0;
               const disabled = p.stock === 0;
+
               return (
                 <motion.div
                   layout
@@ -472,7 +471,9 @@ export default function App() {
                   </div>
 
                   {cartCount === 0 ? (
-                    <div style={{ ...styles.p, opacity: 0.8 }}>Пока пусто. Добавь товары кнопкой “+”.</div>
+                    <div style={{ ...styles.p, opacity: 0.8 }}>
+                      Пока пусто. Добавь товары кнопкой “+”.
+                    </div>
                   ) : (
                     <div style={{ display: "grid", gap: 10 }}>
                       {products
@@ -482,7 +483,9 @@ export default function App() {
                           return (
                             <div key={p.id} style={styles.cartRow}>
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ ...styles.title, fontSize: 14, marginBottom: 2 }}>{p.title}</div>
+                                <div style={{ ...styles.title, fontSize: 14, marginBottom: 2 }}>
+                                  {p.title}
+                                </div>
                                 <div style={{ ...styles.p, margin: 0 }}>
                                   {rub(p.price)} × {qty} = <b>{rub(p.price * qty)}</b>
                                 </div>
@@ -530,7 +533,6 @@ export default function App() {
 }
 
 const numberSpinnerCss = `
-  /* SmokeRoll: remove number spinners */
   input.sr-number { appearance: textfield; -moz-appearance: textfield; }
   input.sr-number::-webkit-outer-spin-button,
   input.sr-number::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -546,7 +548,6 @@ const styles: Record<string, any> = {
     background: "var(--app-bg)",
     color: "var(--app-text)",
   },
-
   headerRow: {
     display: "flex",
     alignItems: "center",
@@ -555,7 +556,6 @@ const styles: Record<string, any> = {
   },
   h2: { margin: 0 },
   p: { margin: 0, lineHeight: 1.4 },
-
   card: {
     border: "1px solid var(--app-border)",
     borderRadius: 16,
@@ -563,7 +563,6 @@ const styles: Record<string, any> = {
     overflow: "hidden",
     boxShadow: "var(--app-shadow)",
   },
-
   image: { width: "100%", height: 170, objectFit: "cover" },
   imagePlaceholder: {
     width: "100%",
@@ -574,12 +573,10 @@ const styles: Record<string, any> = {
     opacity: 0.7,
     borderBottom: "1px dashed var(--app-border-strong)",
   },
-
   cardBody: { display: "flex", gap: 12, padding: 14, alignItems: "center" },
   title: { fontWeight: 800, fontSize: 16 },
   price: { marginTop: 6, fontWeight: 700 },
   stock: { marginTop: 6, fontSize: 12, opacity: 0.75 },
-
   stepper: { display: "flex", alignItems: "center", gap: 8 },
   stepBtn: {
     width: 36,
@@ -592,7 +589,6 @@ const styles: Record<string, any> = {
     color: "var(--app-text)",
   },
   qty: { minWidth: 22, textAlign: "center", fontWeight: 800 },
-
   bottomBarWrap: { position: "sticky", bottom: 0, paddingTop: 12, marginTop: 16 },
   bottomBar: {
     display: "flex",
@@ -605,7 +601,6 @@ const styles: Record<string, any> = {
     background: "var(--app-card)",
     boxShadow: "var(--app-shadow-strong)",
   },
-
   primaryBtn: {
     padding: "12px 16px",
     borderRadius: 14,
@@ -615,7 +610,6 @@ const styles: Record<string, any> = {
     background: "var(--app-btn)",
     color: "var(--app-btn-text)",
   },
-
   ghostBtn: {
     padding: "10px 12px",
     borderRadius: 12,
@@ -630,7 +624,6 @@ const styles: Record<string, any> = {
     background: "rgba(255,255,255,0.06)",
   },
   btnDisabled: { opacity: 0.6, cursor: "not-allowed" },
-
   error: {
     marginBottom: 12,
     padding: 12,
@@ -639,7 +632,6 @@ const styles: Record<string, any> = {
     background: "var(--app-danger-bg)",
     color: "var(--app-danger-text)",
   },
-
   topBar: {
     display: "flex",
     alignItems: "center",
@@ -650,7 +642,6 @@ const styles: Record<string, any> = {
   logo: { width: 34, height: 34, borderRadius: 10 },
   brand: { fontSize: 18, fontWeight: 800, letterSpacing: 0.2 },
   brandSub: { fontSize: 12, opacity: 0.75 },
-
   badge: {
     position: "absolute",
     top: -6,
@@ -663,7 +654,6 @@ const styles: Record<string, any> = {
     fontWeight: 800,
     border: "2px solid var(--app-card)",
   },
-
   banner: {
     background: "linear-gradient(135deg, rgba(255,45,45,0.18), rgba(255,107,45,0.10))",
     border: "1px solid var(--app-border)",
@@ -696,7 +686,6 @@ const styles: Record<string, any> = {
     border: "1px solid var(--app-border)",
     background: "rgba(255,255,255,0.04)",
   },
-
   filterCard: {
     border: "1px solid var(--app-border)",
     background: "var(--app-card)",
@@ -704,7 +693,6 @@ const styles: Record<string, any> = {
     padding: 12,
     marginBottom: 12,
   },
-
   searchRow: { display: "flex", gap: 8, alignItems: "center" },
   searchInput: {
     flex: 1,
@@ -724,7 +712,6 @@ const styles: Record<string, any> = {
     borderRadius: 14,
     cursor: "pointer",
   },
-
   chipsRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
   chip: {
     border: "1px solid var(--app-border)",
@@ -739,16 +726,9 @@ const styles: Record<string, any> = {
     background: "rgba(255,45,45,0.15)",
     border: "1px solid rgba(255,45,45,0.5)",
   },
-
   priceRow: { marginTop: 10, display: "grid", gap: 8 },
   priceLabel: { fontSize: 12, opacity: 0.85 },
-
-  priceInputsRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
+  priceInputsRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
   moneyField: {
     display: "flex",
     alignItems: "center",
@@ -758,16 +738,8 @@ const styles: Record<string, any> = {
     border: "1px solid var(--app-border-strong)",
     background: "rgba(255,255,255,0.03)",
   },
-  moneyPrefix: {
-    fontSize: 12,
-    opacity: 0.75,
-    fontWeight: 700,
-  },
-  moneySuffix: {
-    fontSize: 12,
-    opacity: 0.75,
-    fontWeight: 800,
-  },
+  moneyPrefix: { fontSize: 12, opacity: 0.75, fontWeight: 700 },
+  moneySuffix: { fontSize: 12, opacity: 0.75, fontWeight: 800 },
   moneyInput: {
     width: 84,
     border: "none",
@@ -777,7 +749,6 @@ const styles: Record<string, any> = {
     fontSize: 14,
     fontWeight: 800,
   },
-
   presetsRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 },
   presetBtn: {
     border: "1px solid var(--app-border)",
@@ -788,7 +759,6 @@ const styles: Record<string, any> = {
     cursor: "pointer",
     fontSize: 12,
   },
-
   titleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
   catTag: {
     fontSize: 11,
@@ -798,7 +768,6 @@ const styles: Record<string, any> = {
     opacity: 0.9,
     whiteSpace: "nowrap",
   },
-
   modalBackdrop: {
     position: "fixed",
     inset: 0,
@@ -819,7 +788,6 @@ const styles: Record<string, any> = {
   },
   modalHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   modalTitle: { fontSize: 16, fontWeight: 800 },
-
   cartRow: {
     display: "flex",
     alignItems: "center",
