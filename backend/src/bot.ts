@@ -31,6 +31,17 @@ async function requireAdmin(ctx: any) {
   return true;
 }
 
+/** Safely get message text (works for non-text messages too) */
+function getText(ctx: any): string {
+  // Telegraf ctx.message может быть не текстом (photo/animation/etc)
+  // поэтому берём аккуратно
+  const msg = ctx.message;
+  if (!msg) return "";
+  if (typeof msg.text === "string") return msg.text;
+  if (typeof msg.caption === "string") return msg.caption; // на всякий: подписи к фото
+  return "";
+}
+
 export function startBot() {
   const token = process.env.BOT_TOKEN;
   if (!token) throw new Error("BOT_TOKEN missing");
@@ -90,9 +101,12 @@ export function startBot() {
   bot.command("setstock", async (ctx) => {
     if (!(await requireAdmin(ctx))) return;
 
-    const [idStr, stockStr] = ctx.message.text.split(" ").slice(1);
+    const text = getText(ctx);
+    const [idStr, stockStr] = text.trim().split(/\s+/).slice(1);
+
     const id = Number(idStr);
     const stock = Number(stockStr);
+
     if (!Number.isInteger(id) || !Number.isInteger(stock) || stock < 0) {
       return ctx.reply("Формат: /setstock <id> <число>");
     }
@@ -104,9 +118,12 @@ export function startBot() {
   bot.command("setprice", async (ctx) => {
     if (!(await requireAdmin(ctx))) return;
 
-    const [idStr, priceStr] = ctx.message.text.split(" ").slice(1);
+    const text = getText(ctx);
+    const [idStr, priceStr] = text.trim().split(/\s+/).slice(1);
+
     const id = Number(idStr);
     const price = Number(priceStr);
+
     if (!Number.isInteger(id) || !Number.isInteger(price) || price < 0) {
       return ctx.reply("Формат: /setprice <id> <число>");
     }
@@ -138,9 +155,9 @@ export function startBot() {
   });
 
   // flows: защищаем их тоже
-  // (если внутри flow у тебя уже есть проверки — ок, но лучше тут “железно” закрыть)
   bot.use(async (ctx, next) => {
-    const text = ctx.message?.text || "";
+    const text = getText(ctx);
+
     // команды админских flow
     if (text.startsWith("/addproduct") || text.startsWith("/editproduct")) {
       if (!(await requireAdmin(ctx))) return;
