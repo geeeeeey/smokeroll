@@ -27,6 +27,32 @@ function inferCategory(title: string): Category {
   return "Другое";
 }
 
+/**
+ * В проде (Pages) обязательно задаём VITE_API_URL = https://smokeroll-api.onrender.com
+ * Локально можно оставить http://localhost:3000
+ */
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
+/**
+ * Приводим imageUrl к правильной ссылке.
+ * В базе у тебя может быть:
+ * 1) fileId "AgAC...."  -> /images/:fileId на backend
+ * 2) "/images/AgAC...." -> тоже нужно на backend
+ * 3) "https://..."      -> уже ок
+ */
+function resolveImageSrc(imageUrl?: string | null) {
+  if (!imageUrl) return "";
+
+  // уже абсолютная ссылка
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) return imageUrl;
+
+  // если в БД хранится "/images/...."
+  if (imageUrl.startsWith("/images/")) return `${API_URL}${imageUrl}`;
+
+  // если в БД хранится чистый telegram file_id "AgAC..."
+  return `${API_URL}/images/${encodeURIComponent(imageUrl)}`;
+}
+
 export default function App() {
   const tg = window.Telegram?.WebApp;
   const { theme, toggleTheme } = useTheme();
@@ -55,7 +81,9 @@ export default function App() {
     try {
       setProducts(await getProducts());
     } catch {
-      setError("Не удалось загрузить каталог. Проверь, что backend запущен и VITE_API_URL=http://localhost:3000");
+      setError(
+        "Не удалось загрузить каталог. Проверь, что backend запущен и VITE_API_URL настроен на URL backend."
+      );
     } finally {
       setLoading(false);
     }
@@ -391,7 +419,7 @@ export default function App() {
                   style={{ ...styles.card, opacity: disabled ? 0.6 : 1 }}
                 >
                   {p.imageUrl ? (
-                    <img src={p.imageUrl} alt={p.title} style={styles.image} loading="lazy" />
+                    <img src={resolveImageSrc(p.imageUrl)} alt={p.title} style={styles.image} loading="lazy" />
                   ) : (
                     <div style={styles.imagePlaceholder}>SmokeRoll</div>
                   )}
@@ -471,9 +499,7 @@ export default function App() {
                   </div>
 
                   {cartCount === 0 ? (
-                    <div style={{ ...styles.p, opacity: 0.8 }}>
-                      Пока пусто. Добавь товары кнопкой “+”.
-                    </div>
+                    <div style={{ ...styles.p, opacity: 0.8 }}>Пока пусто. Добавь товары кнопкой “+”.</div>
                   ) : (
                     <div style={{ display: "grid", gap: 10 }}>
                       {products
@@ -483,9 +509,7 @@ export default function App() {
                           return (
                             <div key={p.id} style={styles.cartRow}>
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ ...styles.title, fontSize: 14, marginBottom: 2 }}>
-                                  {p.title}
-                                </div>
+                                <div style={{ ...styles.title, fontSize: 14, marginBottom: 2 }}>{p.title}</div>
                                 <div style={{ ...styles.p, margin: 0 }}>
                                   {rub(p.price)} × {qty} = <b>{rub(p.price * qty)}</b>
                                 </div>
@@ -539,6 +563,7 @@ const numberSpinnerCss = `
 `;
 
 const styles: Record<string, any> = {
+  // ... (ниже у тебя стили без изменений)
   page: {
     minHeight: "100vh",
     display: "flex",
