@@ -588,7 +588,13 @@ const styles: Record<string, any> = {
     overflow: "hidden",
     boxShadow: "var(--app-shadow)",
   },
-  image: { width: "100%", height: 170, objectFit: "cover" },
+ image: {
+  width: "100%",
+  height: 170,
+  objectFit: "contain",
+  background: "rgba(0,0,0,0.03)",
+  display: "block",
+},
   imagePlaceholder: {
     width: "100%",
     height: 170,
