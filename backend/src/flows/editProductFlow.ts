@@ -1,102 +1,151 @@
-import { PrismaClient } from "@prisma/client";
-import { Markup } from "telegraf";
+import type { Telegraf } from "telegraf";
+import type { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+type Step = "choose" | "title" | "price" | "stock" | "photo" | "active";
 
-type EditState = { productId: number; field: "TITLE" | "PRICE" | "STOCK" | "PHOTO" | null };
-const editState = new Map<number, EditState>();
+type Session = {
+  step: Step;
+  productId: number;
+};
 
-export function editProductHandlers(bot: any) {
-  bot.command("editproduct", async (ctx: any) => {
-    const admin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!admin) return ctx.reply("⛔ Нет доступа. Сначала /admin");
+const sessions = new Map<number, Session>(); // key = tg user id
 
-    const id = Number(ctx.message.text.split(" ")[1]);
+function getText(ctx: any) {
+  const msg = ctx.message;
+  if (!msg) return "";
+  if (typeof msg.text === "string") return msg.text;
+  if (typeof msg.caption === "string") return msg.caption;
+  return "";
+}
+
+export function editProductHandlers(bot: Telegraf, prisma: PrismaClient, isAdmin: (ctx: any) => boolean) {
+  // /editproduct <id>
+  bot.command("editproduct", async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.reply("⛔ Нет доступа.");
+
+    const text = getText(ctx);
+    const idStr = text.trim().split(/\s+/)[1];
+    const id = Number(idStr);
     if (!Number.isInteger(id)) return ctx.reply("Формат: /editproduct <id>");
 
     const p = await prisma.product.findUnique({ where: { id } });
-    if (!p) return ctx.reply("Товар не найден");
+    if (!p) return ctx.reply("❌ Товар не найден");
 
-    editState.set(ctx.chat.id, { productId: id, field: null });
+    sessions.set(ctx.from.id, { step: "choose", productId: id });
 
     return ctx.reply(
-      `✏️ Редактирование #${p.id}\n${p.title}\nЦена: ${p.price}₽\nОстаток: ${p.stock}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback("Название", `ep:title:${id}`), Markup.button.callback("Цена", `ep:price:${id}`)],
-        [Markup.button.callback("Остаток", `ep:stock:${id}`), Markup.button.callback("Фото", `ep:photo:${id}`)],
-        [Markup.button.callback(p.isActive ? "Скрыть" : "Включить", `ep:toggle:${id}`)]
-      ])
+      `✏️ Редактирование #${p.id}\n` +
+        `${p.title}\nЦена: ${p.price}₽\nОстаток: ${p.stock}\nАктивен: ${p.isActive ? "✅" : "🚫"}\n\n` +
+        `Выбери что менять:\n` +
+        `1) Название — отправь: title\n` +
+        `2) Цена — отправь: price\n` +
+        `3) Остаток — отправь: stock\n` +
+        `4) Фото — отправь: photo (потом пришли фото)\n` +
+        `5) Активность — отправь: active\n\n` +
+        `Отмена: cancel`
     );
   });
 
-  bot.action(/ep:(title|price|stock|photo|toggle):(\d+)/, async (ctx: any) => {
-    const admin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!admin) return ctx.answerCbQuery("Нет доступа");
-
-    const action = ctx.match[1] as string;
-    const id = Number(ctx.match[2]);
-
-    if (action === "toggle") {
-      const p = await prisma.product.findUnique({ where: { id } });
-      if (!p) return ctx.answerCbQuery("Не найдено");
-      await prisma.product.update({ where: { id }, data: { isActive: !p.isActive } });
-      await ctx.answerCbQuery("Ок");
-      return ctx.editMessageText(`✅ Готово. Товар #${id} теперь ${!p.isActive ? "включен" : "скрыт"}.`);
+  // обработчик сообщений внутри “сессии”
+  bot.on("message", async (ctx, next) => {
+    if (!ctx.from?.id) return next();
+    const s = sessions.get(ctx.from.id);
+    if (!s) return next();
+    if (!isAdmin(ctx)) {
+      sessions.delete(ctx.from.id);
+      return ctx.reply("⛔ Нет доступа.");
     }
 
-    if (action === "title") editState.set(ctx.chat.id, { productId: id, field: "TITLE" });
-    if (action === "price") editState.set(ctx.chat.id, { productId: id, field: "PRICE" });
-    if (action === "stock") editState.set(ctx.chat.id, { productId: id, field: "STOCK" });
-    if (action === "photo") editState.set(ctx.chat.id, { productId: id, field: "PHOTO" });
+    const text = getText(ctx).trim().toLowerCase();
 
-    const prompt =
-      action === "title" ? "Отправь новое название:" :
-      action === "price" ? "Отправь новую цену (числом):" :
-      action === "stock" ? "Отправь новый остаток (числом):" :
-      "Отправь новое фото товара (картинкой).";
-
-    await ctx.answerCbQuery("Ок");
-    return ctx.reply(prompt);
-  });
-
-  bot.on("message", async (ctx: any) => {
-    const st = editState.get(ctx.chat.id);
-    if (!st?.field) return;
-
-    const admin = await prisma.admin.findUnique({ where: { tgChatId: BigInt(ctx.chat.id) } });
-    if (!admin) return;
-
-    if (st.field === "TITLE") {
-      const title = ctx.message.text?.trim();
-      if (!title) return ctx.reply("Название текстом.");
-      await prisma.product.update({ where: { id: st.productId }, data: { title } });
-      editState.delete(ctx.chat.id);
-      return ctx.reply("✅ Название обновлено");
+    if (text === "cancel") {
+      sessions.delete(ctx.from.id);
+      return ctx.reply("Ок, отменено.");
     }
 
-    if (st.field === "PRICE") {
-      const price = Number(ctx.message.text);
-      if (!Number.isInteger(price) || price < 0) return ctx.reply("Цена — целое число >= 0");
-      await prisma.product.update({ where: { id: st.productId }, data: { price } });
-      editState.delete(ctx.chat.id);
-      return ctx.reply("✅ Цена обновлена");
+    const p = await prisma.product.findUnique({ where: { id: s.productId } });
+    if (!p) {
+      sessions.delete(ctx.from.id);
+      return ctx.reply("❌ Товар не найден (сессия закрыта).");
     }
 
-    if (st.field === "STOCK") {
-      const stock = Number(ctx.message.text);
-      if (!Number.isInteger(stock) || stock < 0) return ctx.reply("Остаток — целое число >= 0");
-      await prisma.product.update({ where: { id: st.productId }, data: { stock } });
-      editState.delete(ctx.chat.id);
-      return ctx.reply("✅ Остаток обновлен");
+    if (s.step === "choose") {
+      if (text === "title") {
+        sessions.set(ctx.from.id, { ...s, step: "title" });
+        return ctx.reply("Ок, отправь новое название:");
+      }
+      if (text === "price") {
+        sessions.set(ctx.from.id, { ...s, step: "price" });
+        return ctx.reply("Ок, отправь новую цену (число):");
+      }
+      if (text === "stock") {
+        sessions.set(ctx.from.id, { ...s, step: "stock" });
+        return ctx.reply("Ок, отправь новый остаток (число):");
+      }
+      if (text === "photo") {
+        sessions.set(ctx.from.id, { ...s, step: "photo" });
+        return ctx.reply("Ок, пришли фото товарa (как фото, не как файл). Или напиши /skip");
+      }
+      if (text === "active") {
+        sessions.set(ctx.from.id, { ...s, step: "active" });
+        return ctx.reply("Напиши: on или off");
+      }
+
+      return ctx.reply("Не понял. Напиши: title / price / stock / photo / active или cancel");
     }
 
-    if (st.field === "PHOTO") {
-      const photos = ctx.message.photo;
-      if (!photos?.length) return ctx.reply("Отправь фото как изображение.");
-      const best = photos[photos.length - 1];
-      await prisma.product.update({ where: { id: st.productId }, data: { imageFileId: best.file_id } });
-      editState.delete(ctx.chat.id);
-      return ctx.reply("✅ Фото обновлено");
+    if (s.step === "title") {
+      const newTitle = getText(ctx).trim();
+      if (!newTitle) return ctx.reply("Название пустое. Отправь текстом.");
+      await prisma.product.update({ where: { id: s.productId }, data: { title: newTitle } });
+      sessions.set(ctx.from.id, { ...s, step: "choose" });
+      return ctx.reply("✅ Название обновлено. Выбери дальше: title/price/stock/photo/active или cancel");
     }
+
+    if (s.step === "price") {
+      const n = Number(text);
+      if (!Number.isFinite(n) || n < 0) return ctx.reply("Цена должна быть числом >= 0");
+      await prisma.product.update({ where: { id: s.productId }, data: { price: Math.round(n) } });
+      sessions.set(ctx.from.id, { ...s, step: "choose" });
+      return ctx.reply("✅ Цена обновлена. Выбери дальше: title/price/stock/photo/active или cancel");
+    }
+
+    if (s.step === "stock") {
+      const n = Number(text);
+      if (!Number.isFinite(n) || n < 0) return ctx.reply("Остаток должен быть числом >= 0");
+      await prisma.product.update({ where: { id: s.productId }, data: { stock: Math.round(n) } });
+      sessions.set(ctx.from.id, { ...s, step: "choose" });
+      return ctx.reply("✅ Остаток обновлён. Выбери дальше: title/price/stock/photo/active или cancel");
+    }
+
+    if (s.step === "active") {
+      if (text !== "on" && text !== "off") return ctx.reply("Напиши on или off");
+      await prisma.product.update({ where: { id: s.productId }, data: { isActive: text === "on" } });
+      sessions.set(ctx.from.id, { ...s, step: "choose" });
+      return ctx.reply("✅ Обновлено. Выбери дальше: title/price/stock/photo/active или cancel");
+    }
+
+    if (s.step === "photo") {
+      // allow skip
+      if (text === "/skip") {
+        await prisma.product.update({ where: { id: s.productId }, data: { imageUrl: null } });
+        sessions.set(ctx.from.id, { ...s, step: "choose" });
+        return ctx.reply("✅ Фото очищено. Выбери дальше: title/price/stock/photo/active или cancel");
+      }
+
+      const photo = (ctx.message as any)?.photo?.at?.(-1);
+      const fileId = photo?.file_id;
+
+      if (!fileId) return ctx.reply("Пришли фото как *Photo* (не как Document). Или /skip");
+
+      // важно: твой фронт/бэк уже умеют /images/:fileId через telegramImageProxy
+      const url = `/images/${fileId}`;
+      await prisma.product.update({ where: { id: s.productId }, data: { imageUrl: url } });
+
+      sessions.set(ctx.from.id, { ...s, step: "choose" });
+      return ctx.reply("✅ Фото обновлено. Выбери дальше: title/price/stock/photo/active или cancel");
+    }
+
+    return next();
   });
 }
