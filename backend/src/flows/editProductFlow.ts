@@ -128,7 +128,7 @@ export function editProductHandlers(bot: Telegraf, prisma: PrismaClient, isAdmin
     if (s.step === "photo") {
       // allow skip
       if (text === "/skip") {
-        await prisma.product.update({ where: { id: s.productId }, data: { imageUrl: null } });
+        await prisma.product.update({ where: { id: s.productId }, data: { imageFileId: null } });
         sessions.set(ctx.from.id, { ...s, step: "choose" });
         return ctx.reply("✅ Фото очищено. Выбери дальше: title/price/stock/photo/active или cancel");
       }
@@ -140,7 +140,7 @@ export function editProductHandlers(bot: Telegraf, prisma: PrismaClient, isAdmin
 
       // важно: твой фронт/бэк уже умеют /images/:fileId через telegramImageProxy
       const url = `/images/${fileId}`;
-      await prisma.product.update({ where: { id: s.productId }, data: { imageUrl: url } });
+      await prisma.product.update({ where: { id: s.productId }, data: { imageFileId: fileId } });
 
       sessions.set(ctx.from.id, { ...s, step: "choose" });
       return ctx.reply("✅ Фото обновлено. Выбери дальше: title/price/stock/photo/active или cancel");
