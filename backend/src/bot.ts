@@ -203,6 +203,57 @@ export function startBot() {
     }
     return next();
   });
+  bot.command("settitle", async (ctx) => {
+  if (!(await requireAdmin(ctx))) return;
+
+  const text = getText(ctx);
+  const parts = text.trim().split(/\s+/);
+  const id = Number(parts[1]);
+  const title = parts.slice(2).join(" ").trim();
+
+  if (!Number.isInteger(id) || !title) {
+    return ctx.reply("Формат: /settitle <id> <название>");
+  }
+
+  await prisma.product.update({ where: { id }, data: { title } });
+  await ctx.reply(`✅ Название товара #${id} обновлено`);
+});
+const waitPhoto = new Map<number, number>(); // userId -> productId
+
+bot.command("setphoto", async (ctx) => {
+  if (!(await requireAdmin(ctx))) return;
+
+  const text = getText(ctx);
+  const id = Number(text.trim().split(/\s+/)[1]);
+  if (!Number.isInteger(id)) return ctx.reply("Формат: /setphoto <id>");
+
+  waitPhoto.set(ctx.from.id, id);
+  await ctx.reply("📷 Ок, теперь отправь фото одним сообщением.");
+});
+
+bot.on("photo", async (ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  const productId = waitPhoto.get(userId);
+  if (!productId) return; // фото не в рамках команды
+
+  // берём самое большое фото
+  const photos = ctx.message.photo;
+  const fileId = photos[photos.length - 1]?.file_id;
+  if (!fileId) return ctx.reply("Не смог прочитать фото, попробуй ещё раз.");
+
+  waitPhoto.delete(userId);
+
+  // ВАЖНО: тут должно быть поле, которое реально есть в Prisma, чаще всего imageFileId
+  await prisma.product.update({
+    where: { id: productId },
+    data: { imageFileId: fileId }, // <-- если у тебя поле называется иначе — поменяй имя
+  });
+
+  await ctx.reply(`✅ Фото для товара #${productId} обновлено`);
+});
+
 
   addProductHandlers(bot);
   editProductHandlers(bot, prisma, isAdmin);
