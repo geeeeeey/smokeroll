@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { addProductHandlers } from "./flows/addProductFlow.js";
 import { editProductHandlers } from "./flows/editProductFlow.js";
 
+
 const prisma = new PrismaClient();
 
 /** ADMIN: whitelist by user_id (NOT chat_id) */
@@ -204,7 +205,8 @@ export function startBot() {
   });
 
   addProductHandlers(bot);
-  editProductHandlers(bot);
+  editProductHandlers(bot, prisma, isAdmin);
+
 
   bot.launch();
   console.log("Bot launched ✅");
