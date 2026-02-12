@@ -33,12 +33,10 @@ async function requireAdmin(ctx: any) {
 
 /** Safely get message text (works for non-text messages too) */
 function getText(ctx: any): string {
-  // Telegraf ctx.message может быть не текстом (photo/animation/etc)
-  // поэтому берём аккуратно
   const msg = ctx.message;
   if (!msg) return "";
   if (typeof msg.text === "string") return msg.text;
-  if (typeof msg.caption === "string") return msg.caption; // на всякий: подписи к фото
+  if (typeof msg.caption === "string") return msg.caption;
   return "";
 }
 
@@ -64,14 +62,12 @@ export function startBot() {
   });
 
   /**
-   * /admin — теперь НЕ “сделай меня админом”
+   * /admin — НЕ “сделай меня админом”
    * а “привяжи этот чат для уведомлений о заказах”
-   * (и это может сделать только настоящий админ из ADMIN_IDS)
    */
   bot.command("admin", async (ctx) => {
     if (!(await requireAdmin(ctx))) return;
 
-    // сохраняем чат, куда слать заказы
     await prisma.admin.upsert({
       where: { tgChatId: BigInt(ctx.chat.id) },
       update: {},
@@ -132,6 +128,50 @@ export function startBot() {
     await ctx.reply(`✅ Цена товара #${id} = ${price}₽`);
   });
 
+  /** ✅ NEW: удалить товар */
+  bot.command("deleteproduct", async (ctx) => {
+    if (!(await requireAdmin(ctx))) return;
+
+    const text = getText(ctx);
+    const [idStr] = text.trim().split(/\s+/).slice(1);
+
+    const id = Number(idStr);
+    if (!Number.isInteger(id)) return ctx.reply("Формат: /deleteproduct <id>");
+
+    try {
+      await prisma.product.delete({ where: { id } });
+      await ctx.reply(`🗑 Товар #${id} удалён`);
+    } catch {
+      await ctx.reply("❌ Товар не найден");
+    }
+  });
+
+  /** ✅ NEW: fallback /editproduct если flow глючит */
+  bot.command("editproduct", async (ctx) => {
+    if (!(await requireAdmin(ctx))) return;
+
+    const text = getText(ctx);
+    const [idStr] = text.trim().split(/\s+/).slice(1);
+
+    const id = Number(idStr);
+    if (!Number.isInteger(id)) return ctx.reply("Формат: /editproduct <id>");
+
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) return ctx.reply("❌ Товар не найден");
+
+    await ctx.reply(
+      `✏️ Товар #${product.id}\n` +
+        `${product.title}\n` +
+        `Цена: ${product.price}₽\n` +
+        `Остаток: ${product.stock}\n` +
+        `Активен: ${product.isActive ? "✅" : "🚫"}\n\n` +
+        `Команды:\n` +
+        `/setprice ${product.id} <цена>\n` +
+        `/setstock ${product.id} <остаток>\n` +
+        `/deleteproduct ${product.id}`
+    );
+  });
+
   bot.command("orders", async (ctx) => {
     if (!(await requireAdmin(ctx))) return;
 
@@ -157,8 +197,6 @@ export function startBot() {
   // flows: защищаем их тоже
   bot.use(async (ctx, next) => {
     const text = getText(ctx);
-
-    // команды админских flow
     if (text.startsWith("/addproduct") || text.startsWith("/editproduct")) {
       if (!(await requireAdmin(ctx))) return;
     }
